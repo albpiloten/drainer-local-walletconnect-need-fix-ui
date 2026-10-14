@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>USDC Approval DApp</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: wss: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; connect-src 'self' https: wss:; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:;">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #007bff;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            margin-bottom: 15px;
+        }
+        .status-message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+            word-break: break-all;
+        }
+        .info { background-color: #e6f7ff; color: #0056b3; border: 1px solid #91d5ff; }
+        .success { background-color: #f6ffed; color: #237804; border: 1px solid #b7eb8f; }
+        .error { background-color: #fff1f0; color: #cf1322; border: 1px solid #ffa39e; }
+        .loading {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #007bff;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .hidden { display: none; }
+        .action-button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 15px;
+        }
+        .action-button:hover {
+            background-color: #0056b3;
+        }
+        .wallet-info-card {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .wallet-info-card strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        #qrcodeDisplay {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            background-color: #fefefe;
+        }
+        #qrcodeImage {
+            width: 250px;
+            height: 250px;
+            image-rendering: pixelated;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="hidden">USDC Approval DApp</h1>
+        <p id="current-message" class="hidden">Please connect your wallet to approve USDC.</p>
+        <div id="loader" class="loading hidden"></div>
+        
+        <div class="button-group">
+            <button id="connectMetaMaskButton" class="action-button hidden">Connect MetaMask</button>
+            <button id="connectMobileButton" class="action-button">Connect Mobile Wallet (QR)</button>
+        </div>
+
+        <div id="qrcodeDisplay" class="hidden">
+            <h3>Scan with Mobile Wallet</h3>
+            <img id="qrcodeImage" src="" alt="QR Code">
+            <p>Scan this code with your WalletConnect-compatible mobile wallet.</p>
+        </div>
+
+        <div id="walletInfo" class="wallet-info-card hidden">
+            <strong>Connected Account:</strong> <span id="accountAddress"></span><br>
+            <strong>Network:</strong> <span id="networkName"></span>
+        </div>
+
+        <button id="approveButton" class="action-button hidden">Approve USDC</button>
+
+        <div id="status" class="status-message hidden"></div>
+        <div id="errorDetails" class="status-message error hidden">
+            <strong>Error Details:</strong> <span id="errorMessage"></span>
+        </div>
+    </div>
+
+    <!-- Load Ethers.js from cdnjs.com -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <!-- Load WalletConnect Ethereum Provider as an ES Module -->
+    <script type="module">
+        import EthereumProvider from "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@latest/+esm";
+        window.WalletConnectEthereumProvider = EthereumProvider;
+    </script>
+    
+    <!-- Your DApp's script.js -->
+    <script src="./script.js"></script>
+</body>
+</html>

